@@ -1,0 +1,388 @@
+"""Operator implementations."""
+
+from numbers import Number
+from typing import Optional, List, Tuple, Union
+
+from ..autograd import NDArray
+from ..autograd import Op, Tensor, Value, TensorOp
+from ..autograd import TensorTuple, TensorTupleOp
+import numpy
+
+# NOTE: we will import numpy as the array_api
+# as the backend for our computations, this line will change in later homeworks
+
+import numpy as array_api
+
+
+class EWiseAdd(TensorOp):
+    def compute(self, a: NDArray, b: NDArray):
+        return a + b
+
+    def gradient(self, out_grad: Tensor, node: Tensor):
+        return out_grad, out_grad
+
+
+def add(a, b):
+    return EWiseAdd()(a, b)
+
+
+class AddScalar(TensorOp):
+    def __init__(self, scalar):
+        self.scalar = scalar
+
+    def compute(self, a: NDArray):
+        return a + self.scalar
+
+    def gradient(self, out_grad: Tensor, node: Tensor):
+        return out_grad
+
+
+def add_scalar(a, scalar):
+    return AddScalar(scalar)(a)
+
+
+class EWiseMul(TensorOp):
+    def compute(self, a: NDArray, b: NDArray):
+        return a * b
+
+    def gradient(self, out_grad: Tensor, node: Tensor):
+        lhs, rhs = node.inputs
+        return out_grad * rhs, out_grad * lhs
+
+
+def multiply(a, b):
+    return EWiseMul()(a, b)
+
+
+class MulScalar(TensorOp):
+    def __init__(self, scalar):
+        self.scalar = scalar
+
+    def compute(self, a: NDArray):
+        return a * self.scalar
+
+    def gradient(self, out_grad: Tensor, node: Tensor):
+        return (out_grad * self.scalar,)
+
+
+def mul_scalar(a, scalar):
+    return MulScalar(scalar)(a)
+
+
+class PowerScalar(TensorOp):
+    """Op raise a tensor to an (integer) power."""
+
+    def __init__(self, scalar: int):
+        self.scalar = scalar
+
+    def compute(self, a: NDArray) -> NDArray:
+        ### BEGIN YOUR SOLUTION
+        return array_api.power(a, self.scalar)
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        if not isinstance(node.inputs[0], Tensor):
+            raise ValueError("Both inputs must be tensors (NDArray).")
+        a = node.inputs[0]
+        grad_a = out_grad * self.scalar * array_api.power(a, self.scalar - 1)
+        return grad_a
+        ### END YOUR SOLUTION
+
+
+def power_scalar(a, scalar):
+    return PowerScalar(scalar)(a)
+
+
+class EWisePow(TensorOp):
+    """Op to element-wise raise a tensor to a power."""
+
+    def compute(self, a: NDArray, b: NDArray) -> NDArray:
+        return a**b
+
+    def gradient(self, out_grad, node):
+        if not isinstance(node.inputs[0], NDArray) or not isinstance(
+            node.inputs[1], NDArray
+        ):
+            raise ValueError("Both inputs must be tensors (NDArray).")
+
+        a, b = node.inputs[0], node.inputs[1]
+        grad_a = out_grad * b * (a ** (b - 1))
+        grad_b = out_grad * (a**b) * array_api.log(a.data)
+        return grad_a, grad_b
+
+def power(a, b):
+    return EWisePow()(a, b)
+
+
+class EWiseDiv(TensorOp):
+    """Op to element-wise divide two nodes."""
+
+    def compute(self, a, b):
+        ### BEGIN YOUR SOLUTION
+        if a.shape != b.shape:
+          raise RuntimeError("the shape is not consistent.")
+        if b.all() == 0:
+          raise RuntimeError("can not be divided by zero.")
+        return a / b
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        if not isinstance(node.inputs[0], Tensor) or not isinstance(
+            node.inputs[1], Tensor
+        ):
+            raise ValueError("Both inputs must be tensors (NDArray).")
+
+        a, b = node.inputs[0], node.inputs[1]
+        grad_a = out_grad / b
+        grad_b = out_grad * (-a / (b * b))
+        return grad_a, grad_b
+        ### END YOUR SOLUTION
+
+
+def divide(a, b):
+    return EWiseDiv()(a, b)
+
+
+class DivScalar(TensorOp):
+    def __init__(self, scalar):
+        self.scalar = scalar
+
+    def compute(self, a):
+        ### BEGIN YOUR SOLUTION
+        if self.scalar == 0:
+            raise RuntimeError("can not be divided by zero.")
+        return a / self.scalar
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        if not isinstance(node.inputs[0], Tensor):
+            raise ValueError("Both inputs must be tensors (NDArray).")
+        a = node.inputs[0]
+        grad_a = out_grad / self.scalar
+        return grad_a
+        ### END YOUR SOLUTION
+
+
+def divide_scalar(a, scalar):
+    return DivScalar(scalar)(a)
+
+
+class Transpose(TensorOp):
+    def __init__(self, axes: Optional[tuple] = None):
+        self.axes = axes
+
+    def compute(self, a):
+        ### BEGIN YOUR SOLUTION
+        self._axes = array_api.arange(a.ndim)
+        if self.axes is None:
+            self._axes[-2], self._axes[-1] = self._axes[-1], self._axes[-2]
+        else:
+            self._axes[self.axes[0]], self._axes[self.axes[1]] = self.axes[1], self.axes[0]
+        return array_api.transpose(a, self._axes)
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        return transpose(out_grad, self.axes)
+        ### END YOUR SOLUTION
+
+
+def transpose(a, axes=None):
+    return Transpose(axes)(a)
+
+
+class Reshape(TensorOp):
+    def __init__(self, shape):
+        self.shape = shape
+
+    def compute(self, a):
+        ### BEGIN YOUR SOLUTION
+        return array_api.reshape(a, self.shape)
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        if not isinstance(node.inputs[0], Tensor):
+            raise ValueError("Both inputs must be tensors (NDArray).")
+        a = node.inputs[0]
+        grad_a = reshape(out_grad, a.shape)
+        return grad_a
+        ### END YOUR SOLUTION
+
+
+def reshape(a, shape):
+    return Reshape(shape)(a)
+
+
+class BroadcastTo(TensorOp):
+    def __init__(self, shape):
+        self.shape = shape
+
+    def compute(self, a):
+        ### BEGIN YOUR SOLUTION
+        return array_api.broadcast_to(a, self.shape)
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        if not isinstance(node.inputs[0], Tensor):
+            raise ValueError("Both inputs must be tensors (NDArray).")
+        a = node.inputs[0]
+        axes = []
+        shape = [1 for _ in self.shape]
+        dis = len(self.shape) - len(a.shape)
+        shape[dis:] = a.shape
+        for i in range(len(shape)):
+            if shape[i] != self.shape[i]:
+                axes.append(i)
+        axes = tuple(axes)
+        grad_a = summation(out_grad, axes)
+        grad_a = reshape(grad_a, a.shape)
+        return grad_a
+        ### END YOUR SOLUTION
+
+
+def broadcast_to(a, shape):
+    return BroadcastTo(shape)(a)
+
+
+class Summation(TensorOp):
+    def __init__(self, axes: Optional[tuple] = None):
+        self.axes = axes
+
+    def compute(self, a):
+        ### BEGIN YOUR SOLUTION
+        return array_api.sum(a, self.axes)
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        if not isinstance(node.inputs[0], Tensor):
+            raise ValueError("Both inputs must be tensors (NDArray).")
+        a = node.inputs[0]
+        shape = list(a.shape)
+        if self.axes is None:
+            shape = [1 for _ in shape]
+        else:
+            if isinstance(self.axes, int):
+                shape[self.axes] = 1
+            else:
+                for i in self.axes:
+                    shape[i] = 1
+        out_grad = reshape(out_grad, shape)
+        grad_a = out_grad * array_api.ones(a.shape)
+        return grad_a
+        ### END YOUR SOLUTION
+
+
+def summation(a, axes=None):
+    return Summation(axes)(a)
+
+
+class MatMul(TensorOp):
+    def compute(self, a, b):
+        ### BEGIN YOUR SOLUTION
+        return array_api.matmul(a, b)
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        if not isinstance(node.inputs[0], Tensor) or not isinstance(
+            node.inputs[1], Tensor
+        ):
+            raise ValueError("Both inputs must be tensors (NDArray).")
+        a, b = node.inputs[0], node.inputs[1]
+        grad_a = matmul(out_grad, transpose(b))
+        grad_b = matmul(transpose(a), out_grad)
+        if grad_a.shape != a.shape:
+            grad_a = summation(grad_a, tuple(range(len(grad_a.shape) - len(a.shape))))
+        if grad_b.shape != b.shape:
+            grad_b = summation(grad_b, tuple(range(len(grad_b.shape) - len(b.shape))))
+        return grad_a, grad_b
+        ### END YOUR SOLUTION
+
+
+def matmul(a, b):
+    return MatMul()(a, b)
+
+
+class Negate(TensorOp):
+    def compute(self, a):
+        ### BEGIN YOUR SOLUTION
+        return -a
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        return negate(out_grad)
+        ### END YOUR SOLUTION
+
+
+def negate(a):
+    return Negate()(a)
+
+
+class Log(TensorOp):
+    def compute(self, a):
+        ### BEGIN YOUR SOLUTION
+        return array_api.log(a)
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        if not isinstance(node.inputs[0], Tensor):
+            raise ValueError("Both inputs must be tensors (NDArray).")
+        a = node.inputs[0]
+        grad_a = divide(out_grad, a)
+        return grad_a
+        ### END YOUR SOLUTION
+
+
+def log(a):
+    return Log()(a)
+
+
+class Exp(TensorOp):
+    def compute(self, a):
+        ### BEGIN YOUR SOLUTION
+        return array_api.exp(a)
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        if not isinstance(node.inputs[0], Tensor):
+            raise ValueError("Both inputs must be tensors (NDArray).")
+        a = node.inputs[0]
+        grad_a = out_grad * exp(a)
+        return grad_a
+        ### END YOUR SOLUTION
+
+
+def exp(a):
+    return Exp()(a)
+
+
+class ReLU(TensorOp):
+    def compute(self, a):
+        ### BEGIN YOUR SOLUTION
+        return array_api.maximum(0, a)
+        ### END YOUR SOLUTION
+
+    def gradient(self, out_grad, node):
+        ### BEGIN YOUR SOLUTION
+        if not isinstance(node.inputs[0], Tensor):
+            raise ValueError("Both inputs must be tensors (NDArray).")
+        a = node.inputs[0]
+        b = relu(a)
+        b = b.numpy()
+        b[b > 0] = 1
+        grad_a = out_grad * Tensor(b)
+        return grad_a
+        ### END YOUR SOLUTION
+
+
+def relu(a):
+    return ReLU()(a)
